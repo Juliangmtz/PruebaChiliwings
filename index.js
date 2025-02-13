@@ -43,8 +43,10 @@ const ordenesController = require('./routes/011-012-routes');
 
 const diacontroller = require('./routes/diaVenta-routes');
 
+;
 
-const userController = require('./routes/user-empleado-routes')
+
+
 
 
 
@@ -62,7 +64,9 @@ app.use('/generarcomanda', ordenesController);
 
 app.use('/diatrabajo', diacontroller);
 
-app.use('/user', userController )
+
+
+
 
 
 

@@ -85,7 +85,7 @@ exports.obtenerOrdenesCerradas = async (req, res) => {
 
 exports.crearOrden = async (req, res) => {
     try {
-        const { idFolioMesero, numeroMesa, numeroPersonas, productos, infoExtra } = req.body;
+        const { idFolioMesero, numeroMesa, numeroPersonas, productos, infoExtra, total } = req.body;
 
         // Consultar el día de venta actual
         const diaVentaActual = await DiaVenta.findOne();
@@ -99,14 +99,21 @@ exports.crearOrden = async (req, res) => {
             return res.status(400).json({ message: 'Mesero no válido.' });
         }
 
-        // Crear la orden principal
+        // Obtener el último folio registrado de forma segura
+        const lastOrder = await InformacionOrden.findOne({}, { folio: 1 }).sort({ folio: -1 });
+
+        // Asignar folio autoincremental
+        const nuevoFolio = lastOrder && !isNaN(lastOrder.folio) ? lastOrder.folio + 1 : 1;
+
+        // Crear la orden principal con el folio generado automáticamente
         const nuevaOrden = new InformacionOrden({
+            folio: nuevoFolio,
             fecha: new Date(),
             idFolioMesero,
             numeroMesa,
             numeroPersonas,
             diaTrabajo: diaVentaActual.diaTrabajo, // Usar el día de venta configurado
-            infoExtra: infoExtra || '', // Asignar infoExtra global a la orden
+            total
         });
 
         // Guardar la orden
@@ -138,31 +145,94 @@ exports.crearOrden = async (req, res) => {
 
 
 
-// Editar una orden por ID de folio
 exports.editarOrden = async (req, res) => {
     try {
-        const { idFolioOrden, nuevosDatos, nuevosProductos } = req.body;
+        const { meseroId, nuevosDatos, nuevosProductos } = req.body;  // Cambiar numeroMesa por meseroId
 
-        const ordenActualizada = await InformacionOrden.findByIdAndUpdate(idFolioOrden, nuevosDatos, { new: true });
+        console.log("Datos recibidos en editarOrden:", req.body); // Para depuración
 
-        if (nuevosProductos && nuevosProductos.length > 0) {
-            await DetalleOrden.deleteMany({ idFolioOrden });
-            const nuevosDetalles = nuevosProductos.map(producto => ({
-                idFolioOrden,
-                producto: producto.nombre,
-                cantidadProducto: producto.cantidad,
-                infoExtra: producto.infoExtra,
-                precio: producto.precio
-            }));
-            await DetalleOrden.insertMany(nuevosDetalles);
+        // Validar si se envió el campo de búsqueda
+        if (!meseroId) {
+            return res.status(400).json({ message: "Error: meseroId es requerido" });
         }
 
-        res.json({ message: 'Orden actualizada exitosamente', orden: ordenActualizada });
+        // Buscar la orden mediante meseroId (ahora no por numeroMesa)
+        const ordenExistente = await InformacionOrden.findOne({ meseroId });  // Cambiar por meseroId
+
+        if (!ordenExistente) {
+            return res.status(404).json({ message: "Orden no encontrada" });
+        }
+
+        // Actualizar la información de la orden
+        const ordenActualizada = await InformacionOrden.findOneAndUpdate(
+            { meseroId },  // Cambiar por meseroId
+            nuevosDatos,
+            { new: true }
+        );
+
+        if (!ordenActualizada) {
+            return res.status(404).json({ message: "Error al actualizar la orden" });
+        }
+
+        // Si se enviaron nuevos productos, proceder a actualizarlos
+        if (nuevosProductos && nuevosProductos.length > 0) {
+            // Obtener los productos actuales en la orden
+            const productosActuales = await DetalleOrden.find({ meseroId });  // Cambiar por meseroId
+
+            const nuevosProductosSet = new Set(nuevosProductos.map(p => p.nombre));
+
+            // Actualizar o agregar productos nuevos
+            for (const producto of nuevosProductos) {
+                const detalleExistente = await DetalleOrden.findOne({ meseroId, producto: producto.nombre });
+
+                if (detalleExistente) {
+                    // Si el producto ya existe, actualizarlo
+                    await DetalleOrden.updateOne(
+                        { _id: detalleExistente._id },
+                        {
+                            cantidadProducto: producto.cantidad,
+                            infoExtra: producto.infoExtra,
+                            precio: producto.precio,
+                            editactivo: producto.editactivo || detalleExistente.editactivo
+                        }
+                    );
+                } else {
+                    // Si no existe, agregarlo como nuevo
+                    await DetalleOrden.create({
+                        meseroId,  // Cambiar por meseroId
+                        producto: producto.nombre,
+                        cantidadProducto: producto.cantidad,
+                        infoExtra: producto.infoExtra,
+                        precio: producto.precio,
+                        editactivo: producto.editactivo || null
+                    });
+                }
+            }
+
+            // Marcar como "eliminado" los productos que ya no están en la lista
+            for (const producto of productosActuales) {
+                if (!nuevosProductosSet.has(producto.producto)) {
+                    await DetalleOrden.updateOne(
+                        { _id: producto._id },
+                        { editactivo: "eliminado" }
+                    );
+                }
+            }
+        }
+
+        res.json({ message: "Orden actualizada exitosamente", orden: ordenActualizada });
     } catch (err) {
-        console.error('Error al editar la orden:', err);
+        console.error("Error al editar la orden:", err);
         res.status(500).json({ message: err.message });
     }
 };
+
+
+
+
+
+
+
 
 // Eliminar una orden por ID de folio
 exports.eliminarOrden = async (req, res) => {
@@ -180,24 +250,61 @@ exports.eliminarOrden = async (req, res) => {
 };
 
 
+exports.mostrarOrdenesPorMesero = async (req, res) => {
+    const { idFolioMesero } = req.params; // Obtener el idFolioMesero desde la ruta
+    console.log("ID del mesero recibido:", idFolioMesero); // Log para verificar el ID del mesero
 
-exports. mostrarOrdenesPorMesa = async (mesa) => {
     try {
-        // Buscar las órdenes por mesa
-        const ordenes = await InformacionOrden.find({ numeroMesa: mesa })
-            .populate({
-                path: '_id', // Relaciona con los detalles
-                model: 'DetalleOrden',
-                populate: {
-                    path: 'producto', // Si producto es una referencia a otra colección
-                }
-            });
+        console.log("Iniciando consulta a la base de datos para obtener las órdenes...");
 
-        return ordenes;
+        // Buscar las órdenes por idFolioMesero en la tabla de InformacionOrden
+        const ordenes = await InformacionOrden.find({ idFolioMesero });
+
+        if (!ordenes || ordenes.length === 0) {
+            console.log("No se encontraron órdenes para el mesero:", idFolioMesero); // Log si no hay órdenes
+            return res.status(404).json({ mensaje: "No se encontraron órdenes para este mesero." });
+        }
+
+        // Obtener los detalles de cada orden consultando la tabla DetalleOrden
+        const resultados = [];
+        for (const orden of ordenes) {
+            const detalles = await DetalleOrden.find({ idFolioOrden: orden._id }); // Buscar detalles relacionados
+
+            // Desglosar los detalles
+            const detallesDesglosados = detalles.map(detalle => ({
+                idFolioOrden: detalle.idFolioOrden,
+                producto: detalle.producto, // Asumiendo que 'producto' es un string
+                cantidadProducto: detalle.cantidadProducto,
+                infoExtra: detalle.infoExtra,
+                precio: detalle.precio,
+            }));
+
+            resultados.push({
+                informacionOrden: {
+                    id: orden._id,
+                    fecha: orden.fecha,
+                    idFolioMesero: orden.idFolioMesero,
+                    numeroMesa: orden.numeroMesa,
+                    numeroPersonas: orden.numeroPersonas,
+                    diaTrabajo: orden.diaTrabajo,
+                    total: orden.total // ✅ Agregado el total aquí
+                },
+                detallesOrden: detallesDesglosados, // Agregar los detalles desglosados
+            });
+        }
+
+        console.log("Órdenes con detalles encontradas:", resultados); // Log para verificar los resultados
+        res.json(resultados); // Devolver las órdenes y sus detalles al frontend
     } catch (error) {
-        console.error("Error al consultar órdenes:", error);
+        console.error("Error al consultar órdenes por mesero:", error); // Log del error
+        res.status(500).json({ error: "Hubo un error al obtener las órdenes." });
     }
 };
+
+
+
+
+
 
 
 

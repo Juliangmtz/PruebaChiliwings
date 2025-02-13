@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 // Modelo: Información de la Orden (Tabla 011)
 const informacionOrdenSchema = new mongoose.Schema({
+    folio: { type: Number, unique: true }, // Folio autoincrementable
     fecha: { 
         type: Date, 
         default: Date.now, 
@@ -21,7 +22,8 @@ const informacionOrdenSchema = new mongoose.Schema({
         required: true 
     },
 
-    diaTrabajo: { type: Date, default: null } // Agregar este campo al modelo
+    diaTrabajo: { type: Date, default: null }, // Agregar este campo al modelo
+    total: { type: String, default: ' pesos' }
 });
 
 const InformacionOrden = mongoose.model('InformacionOrden', informacionOrdenSchema);
@@ -39,9 +41,14 @@ const detalleOrdenSchema = new mongoose.Schema({
         enum: ['efectivo', 'tarjeta', 'rappi', 'entregas a domicilio', 'la casa invita', 'orden anulada'],
         default: null
     },
+    editactivo: { type: String, default: null }
     
 });
 const DetalleOrden = mongoose.model('DetalleOrden', detalleOrdenSchema);
+
+
+// Middleware para asignar un folio autoincrementable
+
 
 
 

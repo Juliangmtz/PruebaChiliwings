@@ -1,6 +1,6 @@
 const Empleado = require('../models/empleado');
 const Sindicato = require('../models/sindicatos');
-const User = require('../models/user-empleado');
+
 
 
 
@@ -96,5 +96,41 @@ exports.updateEmpleadoByFolio = async (req, res) => {
         res.json(updatedEmpleado);
     } catch (err) {
         res.status(400).json({ message: err.message });
+    }
+};
+
+//login 
+
+exports.login = async (req, res) => {
+    try {
+        const { folio, password } = req.body;
+
+        // Buscar empleado por folio e intentar autenticar
+        const empleado = await Empleado.findOne({ folio });
+        if (!empleado) return res.status(404).json({ message: 'Empleado no encontrado' });
+
+        // Verificar contraseña
+        if (empleado.password !== password) {
+            return res.status(401).json({ message: 'Contraseña incorrecta' });
+        }
+
+        // Simular localStorage en backend (se puede mejorar con JWT o sesiones reales)
+        req.session = { folio: empleado.folio }; // Aquí se simula el almacenamiento de sesión
+
+        res.json({ message: 'Inicio de sesión exitoso', empleado: empleado.showData() });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// Cerrar sesión (logout)
+exports.logout = (req, res) => {
+    try {
+        // Eliminar la sesión (simulación)
+        req.session = null;
+
+        res.json({ message: 'Cierre de sesión exitoso' });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
     }
 };
